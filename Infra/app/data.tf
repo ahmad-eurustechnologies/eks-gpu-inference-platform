@@ -8,6 +8,16 @@ data "terraform_remote_state" "eks" {
   }
 }
 
+data "terraform_remote_state" "platform_config" {
+  backend = "s3"
+
+  config = {
+    bucket = "terraform-backend-ahmad"
+    key    = "Infra/platform_config.tfstate"
+    region = "us-east-1"
+  }
+}
+
 data "aws_eks_cluster_auth" "eks" {
   name = data.terraform_remote_state.eks.outputs.cluster_name
 }

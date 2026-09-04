@@ -335,19 +335,15 @@ resource "kubernetes_manifest" "inference_worker_scaled_object" {
   manifest = {
     apiVersion = "keda.sh/v1alpha1"
     kind       = "ScaledObject"
-
     metadata = {
       name      = local.inference_worker_base_k8s_name
       namespace = local.namespace
     }
-
     spec = {
-      scaleTargetRef = {
-        name = local.inference_worker_base_k8s_name
-      }
+      scaleTargetRef = { name = local.inference_worker_base_k8s_name }
 
       minReplicaCount = 0
-      maxReplicaCount = 4
+      maxReplicaCount = 20
 
       pollingInterval = 60
       cooldownPeriod  = 180
@@ -355,15 +351,12 @@ resource "kubernetes_manifest" "inference_worker_scaled_object" {
       triggers = [
         {
           type = "aws-sqs-queue"
-
-          authenticationRef = {
-            name = "aws-sqs-auth"
-          }
-
+          authenticationRef = { name = "aws-sqs-auth" }
           metadata = {
-            queueURL    = module.sqs.queue_url
-            awsRegion   = "us-east-1"
-            queueLength = "50"
+            queueURL              = module.sqs.queue_url
+            awsRegion             = "us-east-1"
+            queueLength           = "80"   # 1 replica per 80 messages once active
+            activationQueueLength = "50"   # don't scale from 0 until 50+ messages exist
           }
         }
       ]

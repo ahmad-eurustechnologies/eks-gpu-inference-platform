@@ -203,3 +203,17 @@ resource "kubernetes_manifest" "platform_gateway" {
     }
   }
 }
+
+resource "aws_cognito_user_pool" "this" {
+  name = "portfolio-users"
+
+  username_attributes = []
+
+  password_policy {
+    minimum_length    = 12
+    require_lowercase = true
+    require_uppercase = true
+    require_numbers   = true
+    require_symbols   = false
+  }
+}

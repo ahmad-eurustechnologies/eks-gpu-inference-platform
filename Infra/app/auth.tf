@@ -16,14 +16,13 @@ resource "kubernetes_manifest" "upload_api_request_authentication" {
       }
       jwtRules = [
         {
-          issuer  = "https://cognito-idp.${data.aws_region.current.region}.amazonaws.com/${aws_cognito_user_pool.this.id}"
-          jwksUri = "https://cognito-idp.${data.aws_region.current.region}.amazonaws.com/${aws_cognito_user_pool.this.id}/.well-known/jwks.json"
+          issuer  = "https://cognito-idp.${data.aws_region.current.region}.amazonaws.com/${data.terraform_remote_state.platform_config.outputs.cognito_user_pool_id}"
+          jwksUri = "https://cognito-idp.${data.aws_region.current.region}.amazonaws.com/${data.terraform_remote_state.platform_config.outputs.cognito_user_pool_id}/.well-known/jwks.json"
         }
       ]
     }
   }
 
-  depends_on = [aws_cognito_user_pool.this]
 }
 
 resource "kubernetes_manifest" "upload_api_authorization_policy" {

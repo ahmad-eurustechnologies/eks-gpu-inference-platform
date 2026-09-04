@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 
 import boto3
 import torch
@@ -31,6 +32,11 @@ RESULTS_BUCKET = os.environ["RESULTS_BUCKET"]
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 LOCAL_MODEL_PATH = "/tmp/model.pt"
+
+# Batching config
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "8"))
+BATCH_TIMEOUT_SECONDS = int(os.getenv("BATCH_TIMEOUT_SECONDS", "10"))
+VISIBILITY_TIMEOUT = int(os.getenv("SQS_VISIBILITY_TIMEOUT", "300"))
 
 
 # --------------------------------------------------
@@ -63,10 +69,6 @@ def check_s3_access():
     logger.info("Checking S3 access...")
 
     try:
-        # Check model read access.
-        #
-        # head_object verifies that the object exists and
-        # that the IAM role has permission to access it.
         s3.head_object(
             Bucket=MODEL_BUCKET,
             Key=MODEL_PATH,
@@ -78,10 +80,6 @@ def check_s3_access():
             MODEL_PATH,
         )
 
-        # Check results bucket access.
-        #
-        # We use get_bucket_location rather than writing a
-        # test object, so startup doesn't create junk objects.
         s3.get_bucket_location(
             Bucket=RESULTS_BUCKET,
         )
@@ -109,8 +107,6 @@ def check_sqs_access():
     logger.info("Checking SQS access...")
 
     try:
-        # Verifies that the queue exists and that the IAM role
-        # can access it.
         sqs.get_queue_attributes(
             QueueUrl=SQS_QUEUE_URL,
             AttributeNames=["QueueArn"],
@@ -121,10 +117,6 @@ def check_sqs_access():
             SQS_QUEUE_URL,
         )
 
-        # Actually verify ReceiveMessage permission.
-        #
-        # With long polling enabled, this will simply return
-        # no messages if the queue is empty.
         sqs.receive_message(
             QueueUrl=SQS_QUEUE_URL,
             MaxNumberOfMessages=1,
@@ -161,20 +153,9 @@ def check_gpu():
 
     device = torch.device("cuda:0")
 
-    logger.info(
-        "CUDA available: %s",
-        torch.cuda.is_available(),
-    )
-
-    logger.info(
-        "CUDA version: %s",
-        torch.version.cuda,
-    )
-
-    logger.info(
-        "GPU: %s",
-        torch.cuda.get_device_name(0),
-    )
+    logger.info("CUDA available: %s", torch.cuda.is_available())
+    logger.info("CUDA version: %s", torch.version.cuda)
+    logger.info("GPU: %s", torch.cuda.get_device_name(0))
 
     return device
 
@@ -210,43 +191,69 @@ def load_model(device):
             "Could not download model from S3."
         ) from exc
 
-    logger.info(
-        "Model downloaded to %s",
-        LOCAL_MODEL_PATH,
-    )
-
+    logger.info("Model downloaded to %s", LOCAL_MODEL_PATH)
     logger.info("Loading YOLO model onto GPU...")
 
     model = YOLO(LOCAL_MODEL_PATH)
-
     model.to(device)
 
-    logger.info(
-        "YOLO model loaded successfully on %s",
-        device,
-    )
+    logger.info("YOLO model loaded successfully on %s", device)
 
     return model
 
 
 # --------------------------------------------------
-# Process SQS message
+# Batch collection
 # --------------------------------------------------
 
-def process_message(message, model):
+def collect_batch():
+    """
+    Collect up to BATCH_SIZE messages from SQS, or whatever
+    arrives within BATCH_TIMEOUT_SECONDS, whichever comes first.
+
+    Uses long polling on each individual receive_message call so
+    we don't busy-loop while waiting for the first message.
+    """
+
+    batch = []
+    deadline = time.time() + BATCH_TIMEOUT_SECONDS
+
+    while len(batch) < BATCH_SIZE:
+
+        remaining = deadline - time.time()
+
+        if remaining <= 0:
+            break
+
+        response = sqs.receive_message(
+            QueueUrl=SQS_QUEUE_URL,
+            MaxNumberOfMessages=min(10, BATCH_SIZE - len(batch)),
+            WaitTimeSeconds=min(20, max(1, int(remaining))),
+            VisibilityTimeout=VISIBILITY_TIMEOUT,
+        )
+
+        batch.extend(response.get("Messages", []))
+
+    return batch
+
+
+# --------------------------------------------------
+# Download a single message's image
+# --------------------------------------------------
+
+def download_image(message):
+    """
+    Parses an S3 event notification message and downloads the
+    referenced image to a local temp file.
+
+    Returns (input_bucket, input_key, local_path) or raises.
+    """
 
     body = json.loads(message["Body"])
-
     record = body["Records"][0]
 
     input_bucket = record["s3"]["bucket"]["name"]
     input_key = record["s3"]["object"]["key"]
-
-    logger.info(
-        "Processing s3://%s/%s",
-        input_bucket,
-        input_key,
-    )
 
     extension = os.path.splitext(input_key)[1]
 
@@ -254,88 +261,194 @@ def process_message(message, model):
         suffix=extension,
         delete=False,
     ) as tmp:
-
         local_path = tmp.name
 
+    s3.download_file(
+        input_bucket,
+        input_key,
+        local_path,
+    )
+
+    return input_bucket, input_key, local_path
+
+
+# --------------------------------------------------
+# Upload a single result
+# --------------------------------------------------
+
+def upload_result(input_bucket, input_key, detections):
+
+    output = {
+        "input": {
+            "bucket": input_bucket,
+            "key": input_key,
+        },
+        "detections": detections,
+    }
+
+    result_key = os.path.splitext(input_key)[0] + ".json"
+
+    s3.put_object(
+        Bucket=RESULTS_BUCKET,
+        Key=result_key,
+        Body=json.dumps(output),
+        ContentType="application/json",
+    )
+
+    logger.info(
+        "Results uploaded to s3://%s/%s",
+        RESULTS_BUCKET,
+        result_key,
+    )
+
+
+# --------------------------------------------------
+# Process a batch of SQS messages
+# --------------------------------------------------
+
+def process_batch(messages, model):
+    """
+    Downloads every image in the batch, runs a single batched
+    GPU forward pass, then uploads results and deletes messages
+    individually so a failure on one image doesn't affect the
+    others.
+    """
+
+    items = []  # list of dicts: message, bucket, key, local_path
+
+    # --------------------------------------------------
+    # Download phase (isolate failures per-message)
+    # --------------------------------------------------
+
+    for message in messages:
+
+        try:
+            input_bucket, input_key, local_path = download_image(message)
+
+            items.append(
+                {
+                    "message": message,
+                    "bucket": input_bucket,
+                    "key": input_key,
+                    "local_path": local_path,
+                }
+            )
+
+        except Exception:
+            logger.exception(
+                "Failed to download image for message. "
+                "Message will be retried."
+            )
+            # Not deleted -> becomes visible again after
+            # VisibilityTimeout and gets retried.
+
+    if not items:
+        return
+
+    logger.info("Running batched inference on %d image(s)", len(items))
+
+    # --------------------------------------------------
+    # Batched GPU inference
+    # --------------------------------------------------
+
     try:
-
-        # --------------------------------------------------
-        # Download input image
-        # --------------------------------------------------
-
-        s3.download_file(
-            input_bucket,
-            input_key,
-            local_path,
-        )
-
-        logger.info("Downloaded image")
-
-        # --------------------------------------------------
-        # GPU inference
-        # --------------------------------------------------
+        sources = [item["local_path"] for item in items]
 
         results = model.predict(
-            source=local_path,
+            source=sources,
             device=0,
             verbose=False,
         )
 
-        detections = []
+    except Exception:
+        # If the batched call itself fails (e.g. one corrupt image
+        # crashes the whole forward pass), fall back to processing
+        # each image individually so a single bad image doesn't
+        # take the rest of the batch down with it.
+        logger.exception(
+            "Batched inference failed, falling back to per-image processing"
+        )
+        results = None
 
-        for result in results:
+    if results is None:
 
-            for box in result.boxes:
+        for item in items:
 
-                detections.append(
-                    {
-                        "class_id": int(box.cls[0]),
-                        "confidence": float(box.conf[0]),
-                        "bbox": [
-                            float(x)
-                            for x in box.xyxy[0].tolist()
-                        ],
-                    }
+            try:
+                single_result = model.predict(
+                    source=item["local_path"],
+                    device=0,
+                    verbose=False,
+                )
+                detections = extract_detections(single_result[0])
+
+                upload_result(item["bucket"], item["key"], detections)
+
+                sqs.delete_message(
+                    QueueUrl=SQS_QUEUE_URL,
+                    ReceiptHandle=item["message"]["ReceiptHandle"],
                 )
 
-        # --------------------------------------------------
-        # Build result
-        # --------------------------------------------------
+            except Exception:
+                logger.exception(
+                    "Processing failed for s3://%s/%s. Message will be retried.",
+                    item["bucket"],
+                    item["key"],
+                )
 
-        output = {
-            "input": {
-                "bucket": input_bucket,
-                "key": input_key,
-            },
-            "detections": detections,
-        }
+            finally:
+                cleanup(item["local_path"])
 
-        result_key = (
-            os.path.splitext(input_key)[0]
-            + ".json"
+        return
+
+    # --------------------------------------------------
+    # Batched path succeeded - process each result
+    # --------------------------------------------------
+
+    for item, result in zip(items, results):
+
+        try:
+            detections = extract_detections(result)
+
+            upload_result(item["bucket"], item["key"], detections)
+
+            sqs.delete_message(
+                QueueUrl=SQS_QUEUE_URL,
+                ReceiptHandle=item["message"]["ReceiptHandle"],
+            )
+
+            logger.info("Message completed: s3://%s/%s", item["bucket"], item["key"])
+
+        except Exception:
+            logger.exception(
+                "Failed to finalize result for s3://%s/%s. Message will be retried.",
+                item["bucket"],
+                item["key"],
+            )
+
+        finally:
+            cleanup(item["local_path"])
+
+
+def extract_detections(result):
+
+    detections = []
+
+    for box in result.boxes:
+        detections.append(
+            {
+                "class_id": int(box.cls[0]),
+                "confidence": float(box.conf[0]),
+                "bbox": [float(x) for x in box.xyxy[0].tolist()],
+            }
         )
 
-        # --------------------------------------------------
-        # Upload results
-        # --------------------------------------------------
+    return detections
 
-        s3.put_object(
-            Bucket=RESULTS_BUCKET,
-            Key=result_key,
-            Body=json.dumps(output),
-            ContentType="application/json",
-        )
 
-        logger.info(
-            "Results uploaded to s3://%s/%s",
-            RESULTS_BUCKET,
-            result_key,
-        )
-
-    finally:
-
-        if os.path.exists(local_path):
-            os.remove(local_path)
+def cleanup(local_path):
+    if local_path and os.path.exists(local_path):
+        os.remove(local_path)
 
 
 # --------------------------------------------------
@@ -344,50 +457,22 @@ def process_message(message, model):
 
 def worker_loop(model):
 
-    logger.info("GPU worker started")
+    logger.info(
+        "GPU worker started (batch_size=%d, batch_timeout=%ds)",
+        BATCH_SIZE,
+        BATCH_TIMEOUT_SECONDS,
+    )
 
     while True:
 
-        response = sqs.receive_message(
-            QueueUrl=SQS_QUEUE_URL,
-            MaxNumberOfMessages=1,
-            WaitTimeSeconds=20,
-            VisibilityTimeout=300,
-        )
+        batch = collect_batch()
 
-        messages = response.get("Messages", [])
-
-        if not messages:
+        if not batch:
             continue
 
-        for message in messages:
+        logger.info("Collected batch of %d message(s)", len(batch))
 
-            try:
-
-                process_message(
-                    message,
-                    model,
-                )
-
-                # Delete ONLY after successful processing.
-                #
-                # If inference or S3 upload fails, the message
-                # remains in SQS and becomes visible again after
-                # the visibility timeout.
-
-                sqs.delete_message(
-                    QueueUrl=SQS_QUEUE_URL,
-                    ReceiptHandle=message["ReceiptHandle"],
-                )
-
-                logger.info("Message completed")
-
-            except Exception:
-
-                logger.exception(
-                    "Processing failed. "
-                    "Message will be retried."
-                )
+        process_batch(batch, model)
 
 
 # --------------------------------------------------
@@ -398,18 +483,15 @@ def main():
 
     logger.info("Starting GPU worker...")
 
-    # 1. Check AWS access BEFORE loading model
     check_s3_access()
     check_sqs_access()
 
-    # 2. Check GPU
     device = check_gpu()
 
-    # 3. Download and load model
     model = load_model(device)
 
-    # 4. Start worker
     worker_loop(model)
+
 
 if __name__ == "__main__":
     main()

@@ -23,7 +23,7 @@ create_infra() {
 
   cd ../base_k8s_services
   terraform init
-  terraform apply -auto-approve -target='module.karpenter.helm_release.this'
+  # terraform apply -auto-approve -target='module.karpenter.helm_release.this'
   terraform apply -auto-approve
 
   # argocd_initial_password=$(kubectl -n argocd get secret argocd-initial-admin-secret -o=jsonpath='{.data.password}' | base64 -d)

@@ -19,6 +19,7 @@ module "karpenter" {
     cluster_oidc_issuer_url = local.cluster_oidc_issuer_url
     eks_cluster_name = data.terraform_remote_state.eks.outputs.cluster_name
     node_iam_role_name = data.terraform_remote_state.eks.outputs.eks_managed_node_groups_iam_role_name
+    depends_on = [module.albc]
 
 }
 
@@ -35,8 +36,16 @@ module "istio" {
 
     eks_cluster_name = data.terraform_remote_state.eks.outputs.cluster_name
 
+    depends_on = [
+        module.albc
+    ]
+
 }
 
 module "k8s-gpu-plugin" {
     source = "../modules/k8s-gpu-plugin"
+
+    depends_on = [
+        module.karpenter
+    ]
 }

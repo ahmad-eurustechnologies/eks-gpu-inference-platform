@@ -31,3 +31,9 @@ variable "istio_version" {
   type = string
   default = "1.30.3"
 }
+
+variable "domain_name" {
+  type = string
+  description = "Domain name for the ACM certificate"
+  default = "ahmadk.link"
+}

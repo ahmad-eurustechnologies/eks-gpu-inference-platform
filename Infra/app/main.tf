@@ -80,32 +80,63 @@ resource "kubernetes_service_account_v1" "upload-api" {
     }
 }
 
-resource "kubernetes_ingress_v1" "upload-api" {
-    metadata {
-        name      = local.upload_api_base_k8s_name
-        namespace = local.namespace
+resource "kubernetes_manifest" "upload_api_virtualservice" {
+  manifest = {
+    apiVersion = "networking.istio.io/v1"
+    kind       = "VirtualService"
+    metadata = {
+      name      = local.upload_api_base_k8s_name
+      namespace = local.namespace
     }
-    
-    spec {
-        rule {
-            http {
-                path {
-                    path     = "/"
-                    path_type = "Prefix"
-        
-                    backend {
-                        service {
-                            name = kubernetes_service_v1.upload-api.metadata[0].name
-                            port {
-                                number = 80
-                            }
-                        }
-                    }
+    spec = {
+      hosts    = ["upload.ahmadk.link"]
+      gateways = ["istio-system/platform-gateway"]
+      http = [
+        {
+          route = [
+            {
+              destination = {
+                host = "${local.upload_api_base_k8s_name}.${local.namespace}.svc.cluster.local"
+                port = {
+                  number = 80
                 }
+              }
             }
+          ]
         }
+      ]
     }
+  }
+
+  depends_on = [kubernetes_service_v1.upload-api]
 }
+
+# resource "kubernetes_ingress_v1" "upload-api" {
+#     metadata {
+#         name      = local.upload_api_base_k8s_name
+#         namespace = local.namespace
+#     }
+    
+#     spec {
+#         rule {
+#             http {
+#                 path {
+#                     path     = "/"
+#                     path_type = "Prefix"
+        
+#                     backend {
+#                         service {
+#                             name = kubernetes_service_v1.upload-api.metadata[0].name
+#                             port {
+#                                 number = 80
+#                             }
+#                         }
+#                     }
+#                 }
+#             }
+#         }
+#     }
+# }
 
 
 

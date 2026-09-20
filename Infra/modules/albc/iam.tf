@@ -3,7 +3,7 @@ data "aws_caller_identity" "current" {}
 
 resource "aws_iam_role" "this" {
 
-  name               = "albc-role-${var.eks_cluster_name}"
+  name = "albc-role-${var.eks_cluster_name}"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -24,9 +24,9 @@ resource "aws_iam_role" "this" {
   })
 }
 
-resource "aws_iam_policy" "this" {                                                                                                       
+resource "aws_iam_policy" "this" {
   policy = file("${path.module}/../custom_policies/load_balancer_controller.json")
-  name = "albc-policy-${var.eks_cluster_name}"        
+  name   = "albc-policy-${var.eks_cluster_name}"
 }
 
 

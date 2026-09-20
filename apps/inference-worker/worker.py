@@ -3,6 +3,7 @@ import logging
 import os
 import tempfile
 import time
+from urllib.parse import unquote_plus
 
 import boto3
 import torch
@@ -253,7 +254,9 @@ def download_image(message):
     record = body["Records"][0]
 
     input_bucket = record["s3"]["bucket"]["name"]
-    input_key = record["s3"]["object"]["key"]
+    # S3 event notification keys are URL-encoded: spaces arrive as "+" and
+    # anything non-alphanumeric is percent-encoded.
+    input_key = unquote_plus(record["s3"]["object"]["key"])
 
     extension = os.path.splitext(input_key)[1]
 
@@ -286,7 +289,9 @@ def upload_result(input_bucket, input_key, detections):
         "detections": detections,
     }
 
-    result_key = os.path.splitext(input_key)[0] + ".json"
+    # basename first -- input_key is "images/<uuid>.jpg", and without it the
+    # result lands at "results/images/<uuid>.json".
+    result_key = "results/" + os.path.splitext(os.path.basename(input_key))[0] + ".json"
 
     s3.put_object(
         Bucket=RESULTS_BUCKET,

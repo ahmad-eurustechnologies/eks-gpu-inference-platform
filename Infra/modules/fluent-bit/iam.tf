@@ -2,7 +2,7 @@ data "aws_caller_identity" "current" {}
 
 resource "aws_iam_role" "this" {
 
-  name               = "fluent-bit-role-${local.cluster_name}"
+  name = "fluent-bit-role-${local.cluster_name}"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -23,9 +23,9 @@ resource "aws_iam_role" "this" {
   })
 }
 
-resource "aws_iam_policy" "this" {                                                                                                       
+resource "aws_iam_policy" "this" {
   policy = file("${path.module}/../custom_policies/fluent-bit.json")
-  name = "fluent-bit-policy-${local.cluster_name}"        
+  name   = "fluent-bit-policy-${local.cluster_name}"
 }
 
 

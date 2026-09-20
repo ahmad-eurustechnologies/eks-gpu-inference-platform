@@ -40,6 +40,12 @@ create_infra() {
 destroy_infra() {
   echo "Destroying infrastructure..."
 
+  # NOTE: the app layer is deliberately NOT destroyed here.
+  # It owns the stateful resources -- S3 bucket (model + results), SQS queue and
+  # Cognito user pool -- which are meant to survive cluster rebuilds. S3 bucket
+  # names are globally unique and slow to recycle, so tearing the bucket down and
+  # recreating it is not reliably repeatable.
+  # To destroy it for real:  cd app && terraform destroy
 
   cd platform_config
   terraform init
@@ -49,13 +55,12 @@ destroy_infra() {
   terraform init
   terraform destroy -auto-approve
 
-  # cd eks
   cd ../eks
   terraform destroy -auto-approve
 
   cd ../networking
   terraform destroy -auto-approve
-≠
+
   echo "Infrastructure destroyed."
 }
 

@@ -33,14 +33,16 @@ def health():
 
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
-    if not file.content_type or not file.content_type.startswith("image/"):
+    if file.content_type not in ("image/jpeg", "image/jpg"):
         raise HTTPException(
             status_code=400,
-            detail="Only image files are supported",
+            detail="Only JPEG images are supported",
         )
 
-    extension = os.path.splitext(file.filename or "")[1]
-    object_key = f"images/{uuid.uuid4()}{extension}"
+    # S3 -> SQS event notifications are filtered to the ".jpg" suffix,
+    # so the key must always end in ".jpg" regardless of the client's
+    # original filename.
+    object_key = f"images/{uuid.uuid4()}.jpg"
 
     try:
         s3.upload_fileobj(

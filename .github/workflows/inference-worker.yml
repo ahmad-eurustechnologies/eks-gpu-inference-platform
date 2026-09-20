@@ -23,6 +23,9 @@ jobs:
       id-token: write
       contents: read
 
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,3 +53,32 @@ jobs:
           platforms: linux/amd64 #linux/arm64
           tags: |
             ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.tag }}
+
+      - name: Set image output
+        id: image
+        run: echo "image=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/ahmad-github-oidc-role
+          role-session-name: GitHub_to_AWS_via_FederatedOIDC
+          aws-region: us-east-1
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --region us-east-1 --name Ahmad-EKS
+
+      - name: Set new image on inference-worker
+        run: |
+          kubectl set image deployment/inference-worker \
+            inference-worker=${{ needs.build-and-push.outputs.image }} \
+            -n gpu-inference

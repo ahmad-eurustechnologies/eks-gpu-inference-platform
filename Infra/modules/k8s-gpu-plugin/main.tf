@@ -1,7 +1,7 @@
 locals {
   helm_set = {
 
-   "config.name"= kubernetes_config_map_v1.nvidia_device_plugin.metadata[0].name
+    "config.name" = kubernetes_config_map_v1.nvidia_device_plugin.metadata[0].name
 
   }
 }
@@ -23,10 +23,10 @@ resource "helm_release" "this" {
   ]
 }
 
-resource kubernetes_namespace_v1 "namespace" {
-    metadata {
-        name = var.namespace
-    }
+resource "kubernetes_namespace_v1" "namespace" {
+  metadata {
+    name = var.namespace
+  }
 }
 
 

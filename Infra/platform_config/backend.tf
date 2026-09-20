@@ -1,11 +1,12 @@
 terraform {
-  
+
   backend "s3" {
-    bucket = "terraform-backend-ahmad"
-    key    = "Infra/platform_config.tfstate"
-    region = "us-east-1"
+    bucket       = "terraform-backend-ahmad"
+    key          = "Infra/platform_config.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true
   }
-  
+
 }
 
 
@@ -16,10 +17,10 @@ provider "aws" {
   default_tags {
     tags = {
       created_by = local.created_by
-      
+
     }
   }
-  
+
 }
 
 provider "helm" {

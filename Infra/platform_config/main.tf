@@ -36,7 +36,7 @@ resource "kubernetes_manifest" "gpu_node_pool" {
             {
               key      = "node.kubernetes.io/instance-type"
               operator = "In"
-              values   = ["g4dn.xlarge"]#"g5g.xlarge", "g5g.2xlarge"]
+              values   = ["g4dn.xlarge"] #"g5g.xlarge", "g5g.2xlarge"]
             }
           ]
 
@@ -80,6 +80,10 @@ resource "kubernetes_manifest" "gpu_ec2_node_class" {
     spec = {
       amiFamily = "AL2023"
 
+      # Pinned by ID rather than an alias because the GPU nodes need the
+      # NVIDIA-enabled AL2023 variant. Revisit switching to
+      # `alias = "al2023@latest"` once verified that Karpenter selects the
+      # NVIDIA AMI for GPU instance types -- a pinned ID gets no patches.
       amiSelectorTerms = [
         {
           id = "ami-0ec20d5fad1326c34" # x86
@@ -123,39 +127,39 @@ resource "kubernetes_manifest" "gpu_ec2_node_class" {
 
       kubelet = {
         systemReserved = {
-          cpu               = "50m"
-          memory            = "100Mi"
+          cpu                 = "50m"
+          memory              = "100Mi"
           "ephemeral-storage" = "1Gi"
         }
 
         kubeReserved = {
-          cpu               = "50m"
-          memory            = "100Mi"
+          cpu                 = "50m"
+          memory              = "100Mi"
           "ephemeral-storage" = "3Gi"
         }
 
         evictionHard = {
-          "memory.available" = "5%"
-          "nodefs.available" = "10%"
+          "memory.available"  = "5%"
+          "nodefs.available"  = "10%"
           "nodefs.inodesFree" = "10%"
         }
 
         evictionSoft = {
-          "memory.available" = "500Mi"
-          "nodefs.available" = "15%"
+          "memory.available"  = "500Mi"
+          "nodefs.available"  = "15%"
           "nodefs.inodesFree" = "15%"
         }
 
         evictionSoftGracePeriod = {
-          "memory.available" = "1m"
-          "nodefs.available" = "1m30s"
+          "memory.available"  = "1m"
+          "nodefs.available"  = "1m30s"
           "nodefs.inodesFree" = "2m"
         }
 
-        evictionMaxPodGracePeriod    = 60
-        imageGCHighThresholdPercent  = 85
-        imageGCLowThresholdPercent   = 80
-        cpuCFSQuota                  = true
+        evictionMaxPodGracePeriod   = 60
+        imageGCHighThresholdPercent = 85
+        imageGCLowThresholdPercent  = 80
+        cpuCFSQuota                 = true
       }
     }
   }

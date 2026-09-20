@@ -1,2 +1,41 @@
+# Terraform
+**/.terraform/*
+**/.terraform.d/*
 *.tfstate
-*terraform*
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Variable files may contain secrets -- commit *.tfvars.example instead
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# CLI config
+.terraformrc
+terraform.rc
+
+# Local overrides
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+ven/
+
+# Env / secrets
+.env
+*.pem
+
+# OS
+.DS_Store
+
+# COCO dataset
+val2017.zip
+val2017/

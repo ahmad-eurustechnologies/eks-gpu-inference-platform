@@ -21,12 +21,12 @@ data "aws_iam_policy_document" "external_dns_assume_role_policy" {
   }
 }
 
-resource "aws_iam_policy" "external_dns_iam_policy" {                                                                                                       
+resource "aws_iam_policy" "external_dns_iam_policy" {
   policy = file("Infra/modules/custom_policies/external_dns.json")
-  name = "external_dns_iam_policy"
+  name   = "external_dns_iam_policy"
 }
 
 resource "aws_iam_role_policy_attachment" "external_dns_role_attachment" {
   policy_arn = aws_iam_policy.external_dns_iam_policy.arn
-  role = aws_iam_role.external_dns_iam_role.name
+  role       = aws_iam_role.external_dns_iam_role.name
 }

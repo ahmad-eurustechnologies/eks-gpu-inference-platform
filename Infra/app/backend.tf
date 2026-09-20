@@ -1,11 +1,12 @@
 terraform {
-  
+
   backend "s3" {
-    bucket = "terraform-backend-ahmad"
-    key    = "Infra/app.tfstate"
-    region = "us-east-1"
+    bucket       = "terraform-backend-ahmad"
+    key          = "Infra/app.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true
   }
-  
+
   required_providers {
     aws = {
       source = "hashicorp/aws"
@@ -14,16 +15,16 @@ terraform {
 
     }
     helm = {
-      source  = "hashicorp/helm"
+      source = "hashicorp/helm"
       # version = "3.0"
     }
 
     kubernetes = {
-      source  = "hashicorp/kubernetes"
+      source = "hashicorp/kubernetes"
       # version = "2.0"
     }
   }
-  
+
 }
 
 
@@ -34,9 +35,9 @@ provider "aws" {
   default_tags {
     tags = {
       # created_by = local.created_by
-      
+
     }
-  } 
+  }
 }
 
 

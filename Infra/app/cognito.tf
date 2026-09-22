@@ -1,7 +1,7 @@
 
 resource "aws_cognito_user_pool_client" "this" {
   name         = "upload-api-client"
-  user_pool_id = data.terraform_remote_state.platform_config.outputs.cognito_user_pool_id
+  user_pool_id = aws_cognito_user_pool.this.id
 
   explicit_auth_flows = [
     "ALLOW_USER_PASSWORD_AUTH",
@@ -11,7 +11,21 @@ resource "aws_cognito_user_pool_client" "this" {
   generate_secret = false
 }
 
-resource "aws_cognito_user" "me" {
-  user_pool_id = data.terraform_remote_state.platform_config.outputs.cognito_user_pool_id
+resource "aws_cognito_user" "this" {
+  user_pool_id = aws_cognito_user_pool.this.id
   username     = "ahmad"
+}
+
+resource "aws_cognito_user_pool" "this" {
+  name = "portfolio-users"
+
+  username_attributes = []
+
+  password_policy {
+    minimum_length    = 8
+    require_lowercase = false
+    require_uppercase = false
+    require_numbers   = false
+    require_symbols   = false
+  }
 }

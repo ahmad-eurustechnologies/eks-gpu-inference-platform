@@ -37,3 +37,8 @@ variable "domain_name" {
   description = "Domain name for the ACM certificate"
   default     = "ahmadk.link"
 }
+variable "gateway_hostnames" {
+  type        = list(string)
+  description = "Hostnames to point at the Istio ingress gateway's load balancer."
+  default     = ["*.ahmadk.link", "ahmadk.link"]
+}

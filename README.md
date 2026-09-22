@@ -60,7 +60,7 @@ flowchart TB
 ### Request flow
 
 1. Client authenticates against **Cognito** and calls `POST /upload` with a JWT.
-2. **Istio ingress gateway** terminates TLS (ACM cert, DNS managed by external-dns) and the sidecar validates the token against Cognito's JWKS endpoint — `RequestAuthentication` verifies the signature, `AuthorizationPolicy` checks the claim. The application never sees an unauthenticated request.
+2. **Istio ingress gateway** terminates TLS (ACM cert) and the sidecar validates the token against Cognito's JWKS endpoint — `RequestAuthentication` verifies the signature, `AuthorizationPolicy` checks the claim. The application never sees an unauthenticated request. DNS is a Route 53 alias record created directly by the istio module, pointed at the gateway's NLB.
 3. **upload-api** (FastAPI) streams the image to S3 under `images/<uuid>.jpg` using an IRSA-scoped role.
 4. **S3 event notification** publishes to SQS, filtered to `images/` + `.jpg`.
 5. **KEDA** polls queue depth. Below 50 messages the deployment stays at zero; past that it activates and targets one replica per 80 messages, up to 20.
@@ -109,14 +109,14 @@ Infra/
   networking/          VPC, subnets, NAT  (terraform-aws-modules/vpc)
   eks/                 EKS cluster, managed node group, addons, KMS
   base_k8s_services/   Cluster-wide platform components (see below)
-  platform_config/     Karpenter NodePool + EC2NodeClass, Cognito user pool
-  app/                 Namespace, workloads, S3, SQS, IRSA, Istio + auth policy
+  platform_config/     Karpenter NodePool + EC2NodeClass, Istio Gateway
+  app/                 Namespace, workloads, S3, SQS, IRSA, Cognito, Istio + auth policy
   modules/
     albc/              AWS Load Balancer Controller + IRSA
     karpenter/         Karpenter + IRSA + instance profile
     keda/              KEDA + IRSA
     istio/             istio-base, istiod, ingress gateway, ACM lookup
-    external-dns/      Route 53 record management
+    external-dns/      Route 53 record management (unused -- DNS is wired directly in modules/istio instead)
     k8s-gpu-plugin/    NVIDIA device plugin
     fluent-bit/        CloudWatch log shipping
     eks_access_entry/  EKS access entries for IAM principals
@@ -152,6 +152,14 @@ kubectl get pods -n gpu-inference
 Upload an image:
 
 ```bash
+
+aws cognito-idp admin-set-user-password \
+  --user-pool-id <user-pool-id> \
+  --username ahmad \
+  --password <password> \
+  --permanent
+
+
 TOKEN=$(aws cognito-idp initiate-auth \
   --auth-flow USER_PASSWORD_AUTH \
   --client-id <client-id> \
@@ -188,7 +196,7 @@ Problems worth recording, because the fixes are not obvious:
 
 **Istio sidecar injection failing.** The injection webhook is served on port 15017 on the pod, and the EKS module's default node security group does not allow the control plane to reach it. Added an explicit ingress rule from the cluster security group to the node security group on 15017.
 
-**Karpenter CRs and Terraform plan-time ordering.** `kubernetes_manifest` requires the CRD to already be registered *at plan time*, which is impossible on a cluster that does not exist yet. Currently handled by applying layers in order; the real fix is moving these custom resources out to Argo CD (see roadmap).
+**Karpenter CRs and Terraform plan-time ordering.** `kubernetes_manifest` requires the CRD to already be registered *at plan time*, which is impossible on a cluster that does not exist yet. Handled by applying the layers in strict order, so the CRDs are installed by `base_k8s_services` before `platform_config` plans against them.
 
 **KEDA scaling from zero needs two thresholds.** `queueLength` alone will not do it — `activationQueueLength` is the separate threshold that governs the 0→1 transition. Set to 50 so a handful of stray messages doesn't wake a GPU node, with `queueLength: 80` driving replica count after that.
 
@@ -198,7 +206,6 @@ Problems worth recording, because the fixes are not obvious:
 
 ## Roadmap
 
-- [ ] **Argo CD** — the cluster is currently reconciled by `terraform apply` and `kubectl set image` from CI, which is push-based CD, not GitOps. Moving the app layer's Kubernetes resources to Argo CD also resolves the `kubernetes_manifest` plan-time problem above. In progress on `future/argocd`.
 - [ ] **Split `app` into data and workload layers** so the state boundary matches the lifetime boundary (S3/SQS/Cognito survive cluster rebuilds; Deployments do not).
 - [ ] **Parameterise the root layers** — cluster name, region, domain and account are currently hardcoded. No dev/prod separation yet.
 - [ ] **Observability** — re-enable the Fluent Bit module, add Prometheus and Grafana.

@@ -23,13 +23,12 @@ module "karpenter" {
 
 }
 
-# module "fluent-bit" {
-#     source = "../modules/fluent-bit"
-#     values = {}
-#     cluster_oidc_issuer_url = local.cluster_oidc_issuer_url
-#     eks_cluster_name = data.terraform_remote_state.eks.outputs.cluster_name
-
-# }
+module "fluent-bit" {
+  source                  = "../modules/fluent-bit"
+  values                  = {}
+  cluster_oidc_issuer_url = local.cluster_oidc_issuer_url
+  eks_cluster_name        = data.terraform_remote_state.eks.outputs.cluster_name
+}
 
 module "istio" {
   source = "../modules/istio"

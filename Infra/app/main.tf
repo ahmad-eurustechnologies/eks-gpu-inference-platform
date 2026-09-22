@@ -57,9 +57,11 @@ resource "kubernetes_deployment_v1" "upload-api" {
       spec[0].template[0].spec[0].container[0].image,
     ]
   }
+  depends_on = [kubernetes_namespace_v1.namespace]
 }
 
 resource "kubernetes_service_v1" "upload-api" {
+  depends_on = [kubernetes_namespace_v1.namespace]
   metadata {
     name      = local.upload_api_base_k8s_name
     namespace = local.namespace
@@ -80,6 +82,7 @@ resource "kubernetes_service_v1" "upload-api" {
 }
 
 resource "kubernetes_service_account_v1" "upload-api" {
+  depends_on = [kubernetes_namespace_v1.namespace]
   metadata {
     name      = local.upload_api_base_k8s_name
     namespace = local.namespace
@@ -202,6 +205,7 @@ resource "aws_s3_bucket_notification" "this" {
 }
 
 resource "kubernetes_deployment_v1" "inference_worker" {
+  depends_on = [kubernetes_namespace_v1.namespace]
   metadata {
     name      = local.inference_worker_base_k8s_name
     namespace = local.namespace
@@ -286,6 +290,7 @@ resource "kubernetes_deployment_v1" "inference_worker" {
 }
 
 resource "kubernetes_service_account_v1" "inference_worker" {
+  depends_on = [kubernetes_namespace_v1.namespace]
   metadata {
     name      = local.inference_worker_base_k8s_name
     namespace = local.namespace
@@ -296,6 +301,7 @@ resource "kubernetes_service_account_v1" "inference_worker" {
 }
 
 resource "kubernetes_manifest" "inference_worker_scaled_object" {
+  depends_on = [kubernetes_namespace_v1.namespace]
   manifest = {
     apiVersion = "keda.sh/v1alpha1"
     kind       = "ScaledObject"
@@ -329,6 +335,7 @@ resource "kubernetes_manifest" "inference_worker_scaled_object" {
 }
 
 resource "kubernetes_manifest" "keda_trigger_authentication" {
+  depends_on = [kubernetes_namespace_v1.namespace]
   manifest = {
     apiVersion = "keda.sh/v1alpha1"
     kind       = "TriggerAuthentication"

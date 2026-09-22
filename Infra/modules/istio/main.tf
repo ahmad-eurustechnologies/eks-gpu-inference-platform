@@ -81,3 +81,70 @@ resource "helm_release" "istio_ingressgateway" {
     }
   ]
 }
+
+# ----------------------------------------------------------------------------
+# DNS for the ingress gateway
+#
+# The AWS Load Balancer Controller provisions the NLB asynchronously once the
+# Service exists, so the helm_release returning is not enough -- we have to wait
+# for status.loadBalancer.ingress to be populated before we can read the
+# hostname. Requires kubectl on the machine running terraform, which infra.sh
+# already configures via `aws eks update-kubeconfig`.
+# ----------------------------------------------------------------------------
+
+resource "null_resource" "wait_for_nlb" {
+  depends_on = [helm_release.istio_ingressgateway]
+
+  triggers = {
+    release = helm_release.istio_ingressgateway.id
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      for i in $(seq 1 60); do
+        host=$(kubectl get svc istio-ingressgateway -n ${var.namespace} \
+          -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+        if [ -n "$host" ]; then
+          echo "load balancer ready: $host"
+          exit 0
+        fi
+        echo "waiting for load balancer... ($i/60)"
+        sleep 10
+      done
+      echo "timed out after 10 minutes waiting for the NLB" >&2
+      exit 1
+    EOT
+  }
+}
+
+# Looked up by the tags the AWS Load Balancer Controller puts on the NLB it
+# provisions for the gateway Service. Confirm them with:
+#   aws elbv2 describe-tags --resource-arns <nlb-arn>
+data "aws_lb" "istio_ingressgateway" {
+  tags = {
+    "service.k8s.aws/stack" = "${var.namespace}/istio-ingressgateway"
+    "elbv2.k8s.aws/cluster" = var.eks_cluster_name
+  }
+
+  depends_on = [null_resource.wait_for_nlb]
+}
+
+data "aws_route53_zone" "this" {
+  name         = var.domain_name
+  private_zone = false
+}
+
+resource "aws_route53_record" "gateway" {
+  for_each = toset(var.gateway_hostnames)
+
+  zone_id = data.aws_route53_zone.this.zone_id
+  name    = each.value
+  type    = "A"
+
+  alias {
+    name                   = data.aws_lb.istio_ingressgateway.dns_name
+    zone_id                = data.aws_lb.istio_ingressgateway.zone_id
+    evaluate_target_health = true
+  }
+}

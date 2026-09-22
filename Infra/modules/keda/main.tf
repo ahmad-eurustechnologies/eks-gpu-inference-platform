@@ -11,4 +11,5 @@ resource "helm_release" "this" {
     name  = k
     value = v
   }]
+  timeout = 600
 }

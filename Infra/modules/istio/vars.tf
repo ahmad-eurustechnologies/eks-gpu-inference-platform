@@ -42,3 +42,13 @@ variable "gateway_hostnames" {
   description = "Hostnames to point at the Istio ingress gateway's load balancer."
   default     = ["*.ahmadk.link", "ahmadk.link"]
 }
+
+variable "vpc_id" {
+  type        = string
+  description = "VPC to create the ingress gateway's security group in."
+}
+
+variable "node_security_group_id" {
+  type        = string
+  description = "EKS node security group -- gets an ingress rule from the ingress gateway's security group, since setting aws-load-balancer-security-groups stops the controller from managing that rule itself."
+}

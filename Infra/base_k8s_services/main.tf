@@ -33,7 +33,9 @@ module "fluent-bit" {
 module "istio" {
   source = "../modules/istio"
 
-  eks_cluster_name = data.terraform_remote_state.eks.outputs.cluster_name
+  eks_cluster_name       = data.terraform_remote_state.eks.outputs.cluster_name
+  vpc_id                 = data.terraform_remote_state.vpc.outputs.vpc_id
+  node_security_group_id = data.terraform_remote_state.eks.outputs.node_security_group_id
 
   depends_on = [
     module.albc

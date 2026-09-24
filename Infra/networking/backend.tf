@@ -23,7 +23,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      # created_by = local.created_by
+      created_by = local.created_by
 
     }
   }

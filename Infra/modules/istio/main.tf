@@ -41,6 +41,53 @@ resource "helm_release" "istiod" {
   ]
 }
 
+# Explicit rather than controller-managed so it shows up in state. Ports match
+# what the istio gateway chart puts on the Service by default: 443 (https),
+# 80 (http-redirect), and 15021 (istio-proxy's status-port, used by the NLB's
+# health check -- omitting it fails every target health check and the NLB
+# stops routing traffic entirely, even though the rest of the setup looks fine).
+resource "aws_security_group" "ingressgateway" {
+  name        = "istio-ingressgateway-${var.eks_cluster_name}"
+  description = "Istio ingress gateway NLB"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTP redirect"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# Setting aws-load-balancer-security-groups below (rather than leaving it
+# unset) stops the controller from auto-managing the node security group's
+# ingress rule, so it has to be added explicitly here instead.
+resource "aws_security_group_rule" "ingressgateway_to_nodes" {
+  type                     = "ingress"
+  from_port                = 0
+  to_port                  = 0
+  protocol                 = "-1"
+  security_group_id        = var.node_security_group_id
+  source_security_group_id = aws_security_group.ingressgateway.id
+  description              = "Allow the ingress gateway NLB to reach pods"
+}
+
 resource "helm_release" "istio_ingressgateway" {
   name       = "istio-ingressgateway"
   repository = "https://istio-release.storage.googleapis.com/charts"
@@ -65,6 +112,10 @@ resource "helm_release" "istio_ingressgateway" {
     {
       name  = "service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-scheme"
       value = "internet-facing"
+    },
+    {
+      name  = "service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-security-groups"
+      value = aws_security_group.ingressgateway.id
     },
     {
       name  = "service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-ssl-cert"

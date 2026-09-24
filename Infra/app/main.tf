@@ -44,6 +44,31 @@ resource "kubernetes_deployment_v1" "upload-api" {
             name  = "S3_IMAGE_BUCKET"
             value = module.s3_bucket.s3_bucket_id
           }
+
+          resources {
+            requests = {
+              cpu    = "100m"
+              memory = "150Mi"
+            }
+            limits = {
+              cpu    = "200m"
+              memory = "250Mi"
+            }
+          }
+
+          readiness_probe {
+            http_get {
+              path = "/health"
+              port = 8000
+            }
+          }
+
+          liveness_probe {
+            http_get {
+              path = "/health"
+              port = 8000
+            }
+          }
         }
       }
     }
@@ -348,7 +373,7 @@ resource "kubernetes_manifest" "keda_trigger_authentication" {
     spec = {
       podIdentity = {
         provider      = "aws"
-        roleArn       = "arn:aws:iam::680688655542:role/keda-role-Ahmad-EKS"
+        roleArn       = data.terraform_remote_state.base_k8s_services.outputs.keda_role_arn
         identityOwner = "keda"
       }
     }
